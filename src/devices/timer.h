@@ -3,9 +3,17 @@
 
 #include <round.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 /* Number of timer interrupts per second. */
 #define TIMER_FREQ 100
+
+struct sleeper
+  {
+    int endTime;                  /* The amount of ticks at which this thread will be done sleeping */
+    bool readyToProcess;          /* Whether this sleeper has been fully initialized yet */
+    struct semaphore *semaphore;  /* Whether this thread can proceed */
+  };
 
 void timer_init (void);
 void timer_calibrate (void);

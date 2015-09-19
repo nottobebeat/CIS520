@@ -30,11 +30,18 @@ static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
 
+static struct sleeper sleepers[8];
+
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
 void
 timer_init (void) 
 {
+  int i;
+  for(i = 0; i <= 7; i++)
+  {
+    sleepers[i].readyToProcess = false;
+  }
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
 }
@@ -89,11 +96,31 @@ timer_elapsed (int64_t then)
 void
 timer_sleep (int64_t ticks) 
 {
-  int64_t start = timer_ticks ();
+  /*
+  Implementation details:
+  - Remove thread from ready list and record time when it should be put back in ready list 
+      - in timer_sleep( )
+  - Use semaphore to block thread on semaphore associated with thread getting blocked; 
+    e.g., initialize semaphore with count?
+  - Put it back after sufficient ticks have elapsed - in timer interrupt handler, timer_interrupt( ).
+  */
+  int64_t start = timer_ticks (); /* When we're starting to sleep */
+  int64_t end = start + ticks;    /* When to wake up */
+  
+  ASSERT (intr_get_level () == INTR_ON); /* Need to have interrupts on */
 
-  ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
-    thread_yield ();
+  struct semaphore curSem; /* The semaphore that will tell this current thread to wake up */
+  sema_init(&curSem, 0);   /* Initialize to 0 'cause we want this thread to sleep when it tries to down. */
+
+  /* Set up the semaphore, end time, and flag that we're ready to process for this thread. */
+  struct sleeper curSleeper; 
+  curSleeper.semaphore = &curSem;
+  curSleeper.endTime = end;
+  curSleeper.readyToProcess = true;
+
+  sleepers[thread_tid()] = curSleeper; /* Put this thread's semaphore and end time in the sleepers array */
+
+  sema_down(&curSem); /* Go to sleep until we get woken up */  
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -170,8 +197,26 @@ timer_print_stats (void)
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
+  int i;
   ticks++;
   thread_tick ();
+
+  for(i = 0; i <= 7; i++)
+  {
+    if(sleepers[i].readyToProcess && ticks >= sleepers[i].endTime)
+    {
+      sleepers[i].readyToProcess = false; /* Get it ready for the next time this thread might sleep */
+      sema_up(sleepers[i].semaphore);     /* Wake up the thread */
+    }
+  }
+}
+
+void
+print_sleepers_info(struct sleeper * sleep)
+{
+  printf("Ready to process? %s\n", sleep->readyToProcess ? "true" : "false");
+  printf("End ticks: %d\n", sleep->endTime);
+  printf("Sema value: %hu\n", sleep->semaphore->value);
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
