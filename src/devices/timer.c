@@ -211,14 +211,6 @@ timer_interrupt (struct intr_frame *args UNUSED)
   }
 }
 
-void
-print_sleepers_info(struct sleeper * sleep)
-{
-  printf("Ready to process? %s\n", sleep->readyToProcess ? "true" : "false");
-  printf("End ticks: %d\n", sleep->endTime);
-  printf("Sema value: %hu\n", sleep->semaphore->value);
-}
-
 /* Returns true if LOOPS iterations waits for more than one timer
    tick, otherwise false. */
 static bool
