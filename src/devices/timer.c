@@ -30,18 +30,16 @@ static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
 
-static struct sleeper sleepers[8];
+static struct list sleepers;     /* The list of sleeping threads, their semaphores, and wakeup times */
+static struct lock sleepersLock; /* For when we need to add an element into sleepers */
 
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
 void
 timer_init (void) 
 {
-  int i;
-  for(i = 0; i <= 7; i++)
-  {
-    sleepers[i].readyToProcess = false;
-  }
+  list_init(&sleepers);
+  lock_init(&sleepersLock);
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
 }
@@ -112,15 +110,24 @@ timer_sleep (int64_t ticks)
   struct semaphore curSem; /* The semaphore that will tell this current thread to wake up */
   sema_init(&curSem, 0);   /* Initialize to 0 'cause we want this thread to sleep when it tries to down. */
 
-  /* Set up the semaphore, end time, and flag that we're ready to process for this thread. */
+  /* Set up the semaphore, tid, end time, and flag that we're ready to process for this thread. */
   struct sleeper curSleeper; 
   curSleeper.semaphore = &curSem;
   curSleeper.endTime = end;
+  curSleeper.tid = thread_tid();
   curSleeper.readyToProcess = true;
 
-  sleepers[thread_tid()] = curSleeper; /* Put this thread's semaphore and end time in the sleepers array */
+  /* Get the lock so some weird race condition doesn't happen while inserting into the list */  
+  lock_acquire(&sleepersLock); 
+  list_push_front(&sleepers, &(curSleeper.elem));  /* Add a sleeper */
+  lock_release(&sleepersLock);
 
   sema_down(&curSem); /* Go to sleep until we get woken up */  
+
+  /* Remove this thread from the sleepers list */
+  lock_acquire(&sleepersLock);
+  list_remove(&(curSleeper.elem));
+  lock_release(&sleepersLock);
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -197,17 +204,21 @@ timer_print_stats (void)
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
-  int i;
   ticks++;
   thread_tick ();
 
-  for(i = 0; i <= 7; i++)
+  /* Go through the sleeping threads list and see which ones need to be woken up */
+  struct list_elem *e;
+  for (e = list_begin (&sleepers); e != list_end (&sleepers); e = list_next (e))
   {
-    if(sleepers[i].readyToProcess && ticks >= sleepers[i].endTime)
-    {
-      sleepers[i].readyToProcess = false; /* Get it ready for the next time this thread might sleep */
-      sema_up(sleepers[i].semaphore);     /* Wake up the thread */
-    }
+      struct sleeper *s = list_entry (e, struct sleeper, elem);
+
+      /* If the sleeping thread is at or past its alarm wake it up */
+      if(s->readyToProcess && ticks >= s->endTime) 
+      {
+        s->readyToProcess = false;
+        sema_up(s->semaphore);     /* Wake up the thread */
+      }
   }
 }
 

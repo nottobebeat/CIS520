@@ -4,12 +4,15 @@
 #include <round.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include "lib/kernel/list.h"
 
 /* Number of timer interrupts per second. */
 #define TIMER_FREQ 100
 
 struct sleeper
   {
+    struct list_elem elem;        /* So that we can put this in a list of sleeping threads */
+    int tid;                      /* The thread id */
     int endTime;                  /* The amount of ticks at which this thread will be done sleeping */
     bool readyToProcess;          /* Whether this sleeper has been fully initialized yet */
     struct semaphore *semaphore;  /* Whether this thread can proceed */
