@@ -1,0 +1,5 @@
+src/threads/README.txt
+src/tests/threads/alarm-mega.ck
+src/tests/threads/alarm-wait.c
+src/tests/threads/tests.h
+src/tests/threads/Make.tests

@@ -30,11 +30,16 @@ static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
 
+static struct list sleepers;     /* The list of sleeping threads, their semaphores, and wakeup times */
+static struct lock sleepersLock; /* For when we need to add an element into sleepers */
+
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
 void
 timer_init (void) 
 {
+  list_init(&sleepers);
+  lock_init(&sleepersLock);
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
 }
@@ -89,11 +94,40 @@ timer_elapsed (int64_t then)
 void
 timer_sleep (int64_t ticks) 
 {
-  int64_t start = timer_ticks ();
+  /*
+  Implementation details:
+  - Remove thread from ready list and record time when it should be put back in ready list 
+      - in timer_sleep( )
+  - Use semaphore to block thread on semaphore associated with thread getting blocked; 
+    e.g., initialize semaphore with count?
+  - Put it back after sufficient ticks have elapsed - in timer interrupt handler, timer_interrupt( ).
+  */
+  int64_t start = timer_ticks (); /* When we're starting to sleep */
+  int64_t end = start + ticks;    /* When to wake up */
+  
+  ASSERT (intr_get_level () == INTR_ON); /* Need to have interrupts on */
 
-  ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
-    thread_yield ();
+  struct semaphore curSem; /* The semaphore that will tell this current thread to wake up */
+  sema_init(&curSem, 0);   /* Initialize to 0 'cause we want this thread to sleep when it tries to down. */
+
+  /* Set up the semaphore, tid, end time, and flag that we're ready to process for this thread. */
+  struct sleeper curSleeper; 
+  curSleeper.semaphore = &curSem;
+  curSleeper.endTime = end;
+  curSleeper.tid = thread_tid();
+  curSleeper.readyToProcess = true;
+
+  /* Get the lock so some weird race condition doesn't happen while inserting into the list */  
+  lock_acquire(&sleepersLock); 
+  list_push_front(&sleepers, &(curSleeper.elem));  /* Add a sleeper */
+  lock_release(&sleepersLock);
+
+  sema_down(&curSem); /* Go to sleep until we get woken up */  
+
+  /* Remove this thread from the sleepers list */
+  lock_acquire(&sleepersLock);
+  list_remove(&(curSleeper.elem));
+  lock_release(&sleepersLock);
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -172,6 +206,20 @@ timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   thread_tick ();
+
+  /* Go through the sleeping threads list and see which ones need to be woken up */
+  struct list_elem *e;
+  for (e = list_begin (&sleepers); e != list_end (&sleepers); e = list_next (e))
+  {
+      struct sleeper *s = list_entry (e, struct sleeper, elem);
+
+      /* If the sleeping thread is at or past its alarm wake it up */
+      if(s->readyToProcess && ticks >= s->endTime) 
+      {
+        s->readyToProcess = false;
+        sema_up(s->semaphore);     /* Wake up the thread */
+      }
+  }
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
