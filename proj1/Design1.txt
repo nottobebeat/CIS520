@@ -4,11 +4,9 @@ CIS 520 - Programming Project #1
                    
 ---- GROUP ----
 
->> Fill in the names and email addresses of your group members.
-
 William Baldwin <wjbaldwi@k-state.edu>
 Grant Wilson    <gwilson@k-state.edu>
-...
+
 
 ---- PRELIMINARIES ----
 
@@ -29,31 +27,92 @@ Grant Wilson    <gwilson@k-state.edu>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+//Encapsulates a sleeping thread. 
+struct sleeper
+{
+  struct list_elem elem;        /* So that we can put this in a list of sleeping threads */
+  int tid;                      /* The thread id */
+  int endTime;                  /* The amount of ticks at which this thread will be done sleeping */
+  bool readyToProcess;          /* Whether this sleeper has been fully initialized yet */
+  struct semaphore *semaphore;  /* Whether this thread can proceed */
+};
+
+static struct list sleepers;     /* The list of sleeping threads, their semaphores, and wakeup times */
+
+static struct lock sleepersLock; /* For when we need to add an element into sleepers */
+
+
 
 ---- ALGORITHMS ----
 
 >> A2: Briefly describe what happens in a call to your timer_sleep(),
 >> including the effects of the timer interrupt handler.
 
+  When a thread calls timer_sleep, we set up a "sleeper" variable (representative of a sleeping thread)
+  withits tid, wakeup time, its own personal semaphore to wait on. We put this sleeper into a list with 
+  all the other threads that are sleeping and then try to DOWN its own personal semaphore to wait to 
+  be woken up.
+
+  In timer_interrupt, we loop through the list of sleeping threads, see which ones are at or past
+  their alarm, and UP their semaphore so that they will wake up.
+
+  Each thread that wakes up then removes itself from the list of sleepers so that they don't get
+  looked at anymore.
+
 >> A3: What steps are taken to minimize the amount of time spent in
 >> the timer interrupt handler?
 
+  As much as possible is done within timer_sleep. The only thing we do in the interrupt handler is
+  loop through the threads once to see which ones need to be woken up, upping their semaphores
+  in the process. This has to be done here since it will still respond even if all threads are
+  asleep. However, everything else is done in timer_sleep.
 
 ---- SYNCHRONIZATION ----
 
 >> A4: How are race conditions avoided when multiple threads call
 >> timer_sleep() simultaneously?
 
+  First, since we have a LIST of semaphores, we don't run the risk of one thread
+  downing a semaphore that another one needs and causing a deadlock. Each one has
+  its own "swimlane," to so speak. timer_interrupt gets to see all of the semaphores,
+  but the only purpose is to up them when needed.
+
+  The other potential race condition would be when inserting a sleeping thread into
+  "sleepers," the list of sleeping threads. Since this is a global variable, we could
+  get some really screwy stuff going on here. So, to avert this, we put a lock around
+  any modifications to sleepers so that only one thread can access it at a time. This
+  gives atomicity to adding and removing sleeping threads and avoids race conditions.
+
 
 >> A5: How are race conditions avoided when a timer interrupt occurs
 >> during a call to timer_sleep()?
 
+  Firstly, all that we do with sleepers in timer_interrupt is traverse it 
+  and UP semaphores if a thread is past its alarm. Only one thread can
+  insert into sleepers at once, so even if a thread is inserting or removing
+  while we're reading, the way that insertion/deletion works is such that
+  we'll never be stranded on a node and unable to reach the end of the 
+  doubly linked list. 
+
+  Secondly, once we see that a thread is past due in timer_interrupt, 
+  we set its "readyToProcess" boolean to false so that we don't 
+  touch it again after upping its semaphore.
 
 ---- RATIONALE ----
 
 >> A6: Why did you choose this design?  In what ways is it superior to
 >> other designs that you considered?
 
+  This is a clean design. The other designs we thought of were mostly 
+  half-baked ideas that would have been really messy to implement. At
+  one point we tried to take literally the "remove thread from ready_list" 
+  comment in the implementation details hints section. However, this
+  would have involved messing around in threads.c... not good. With
+  this algorithm, everything is localized to two functions, and
+  the algorithm is quite easy to think about. Plus, it's very 
+  similar to the "implementation details" algorithm that was described
+  in the Project1Session document, so I'm going to go out on a limb
+  and say that this was the intended algorithm. 
 
 
              PRIORITY SCHEDULING
