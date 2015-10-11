@@ -115,8 +115,8 @@ sema_up (struct semaphore *sema)
   old_level = intr_disable ();
   if (!list_empty (&sema->waiters))
     {
-      struct list_elem *e;
-      struct thread *priority_thread = list_entry (list_front(&sema->waiters), struct thread, elem);
+      //struct list_elem *e;
+      /*struct thread *priority_thread = list_entry (list_front(&sema->waiters), struct thread, elem);
 
       for (e = list_begin (&sema->waiters); e != list_end (&sema->waiters); e = list_next (e))
         {
@@ -127,10 +127,9 @@ sema_up (struct semaphore *sema)
             }
         }
       list_remove(&priority_thread->elem);
-      thread_unblock (priority_thread);
+      thread_unblock (priority_thread);*/
 
-      //return priority_thread;
-      //thread_unblock (list_entry (list_pop_front (&sema->waiters), struct thread, elem));
+      thread_unblock (list_entry (list_pop_front (&sema->waiters), struct thread, elem));
     }
   sema->value++;
   intr_set_level (old_level);
@@ -334,7 +333,7 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
 
   if (!list_empty (&cond->waiters)) 
     {
-      struct list_elem *e;
+      /*struct list_elem *e;
       struct semaphore_elem *priority_semaphore_element = list_entry (list_front (&cond->waiters), struct semaphore_elem, elem);
       struct semaphore *priority_semaphore = &priority_semaphore_element->semaphore;
       struct thread *priority_thread = list_entry(list_front(&priority_semaphore->waiters), struct thread, elem);
@@ -352,8 +351,8 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
             }
         }
       list_remove(&priority_semaphore_element->elem);
-      sema_up (priority_semaphore);
-      //sema_up (&list_entry (list_pop_front (&cond->waiters), struct semaphore_elem, elem)->semaphore);
+      sema_up (priority_semaphore);*/
+      sema_up (&list_entry (list_pop_front (&cond->waiters), struct semaphore_elem, elem)->semaphore);
     }
 }
 
