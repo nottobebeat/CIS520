@@ -46,25 +46,65 @@ syscall_init (void)
 static void
 syscall_handler (struct intr_frame *f UNUSED)
 {
+	//printf ("system call!\n");
   int* i_esp = (int*)f->esp;
-	int sys_call_num = (*( i_esp ));
+	//int sys_call_num = (*( i_esp ));
+	int sys_call_num = 0;
+	copy_in(&sys_call_num, f->esp, sizeof(sys_call_num));
 	//printf ("System call number: %i\n", sys_call_num);
 	switch(sys_call_num)
 	{
 		case SYS_HALT:                   /* Halt the operating system. */
+			sys_halt();
 		break;
     case SYS_EXIT:                   /* Terminate this process. */
 		{
 			int status = *(i_esp+1);
-			sys_exit(status);
+			f->eax = sys_exit(status);
 		}
     case SYS_EXEC:                   /* Start another process. */
+		{
+			char* ufile = (char*) *(i_esp+1);
+			f->eax = sys_exec(ufile);
+		}
+		break;
     case SYS_WAIT:                   /* Wait for a child process to die. */
+		{
+			
+		}
+		break;
     case SYS_CREATE:                 /* Create a file. */
-    case SYS_REMOVE:                 /* Delete a file. */
+		{
+			char* ufile = (char*) *(i_esp+1);
+			unsigned initial_size = (unsigned) *(i_esp+2);
+			f->eax = sys_create(ufile, initial_size);
+		}
+		break;    
+		case SYS_REMOVE:                 /* Delete a file. */
+		{
+			char* ufile = (char*) *(i_esp+1);
+			f-> eax = sys_remove(ufile);
+		}
+		break;
     case SYS_OPEN:                   /* Open a file. */
+		{
+			char* ufile = (char*) *(i_esp+1);
+			f->eax = sys_open(ufile);
+		}
+		break;
     case SYS_FILESIZE:               /* Obtain a file's size. */
+		{
+			int handle = *(i_esp+1);
+			f->eax = sys_filesize(handle);
+		}
+		break;
     case SYS_READ:                   /* Read from a file. */
+		{
+			int handle = *(i_esp+1);
+			void* udst_ = (void*) *(i_esp+2);
+			unsigned size = (unsigned) *(i_esp+3);
+			f->eax = sys_read(handle, udst_, size);
+		}
 		break;
     case SYS_WRITE:                  /* Write to a file. */
 		{
@@ -74,14 +114,28 @@ syscall_handler (struct intr_frame *f UNUSED)
 			//printf("fd: %i\n", fd);
 			//printf("buffer: %p\n", buffer);
 			//printf("size: %u\n", size);
-			sys_write(fd, buffer, size);
+			f->eax = sys_write(fd, buffer, size);
 		}
 		break;
     case SYS_SEEK:                   /* Change position in a file. */
+		{
+			int handle = *(i_esp+1);
+			unsigned position = (unsigned) *(i_esp+2);
+			f->eax = sys_seek(handle, position);
+		}
     case SYS_TELL:                   /* Report current position in a file. */
+		{
+			int handle = *(i_esp+1);
+			f->eax = sys_tell(handle);
+		}
     case SYS_CLOSE:                  /* Close a file. */
+		{
+			int handle = *(i_esp+1);
+			f->eax = sys_close(handle);
+		}
 		break;
 	  default:
+		thread_exit();
 		break;
 	}
 }
